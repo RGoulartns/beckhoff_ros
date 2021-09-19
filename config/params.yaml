@@ -1,0 +1,22 @@
+beckhoff_ros_node:
+  ros__parameters:
+    net_id: 192.168.1.10.1.1
+    client_net_id: 192.168.1.20.1.1
+    username: Administrator
+    password: 1
+    variables:
+      GVL.obj1:
+        - field1: "uint16"
+        - field2: "bool"
+      GVL.obj2:
+        - field1: "int8"
+        - field2: ["GVL.obj1", 2]
+      GVL.var1: "bool"
+      GVL.var2: ["uint16", 5]
+    variables_to_monitor:
+      - GVL.obj2
+      - GVL.var1
+    variables_to_write:
+      - GVL.var1
+      - GVL.obj1
+      
