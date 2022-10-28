@@ -91,8 +91,11 @@ class BeckhoffPLC:
             if isinstance(value, dict):
                 valueCtype = self.instantiateCStruct(value, self.variables[name])
             elif isinstance(value, (list,tuple)):
-                elements = [self.variables[name]._type_(*list(v.values())) for v in value]
-                valueCtype = self.variables[name](*elements)
+                if isinstance(value[0], dict):
+                    elements = [self.variables[name]._type_(*list(v.values())) for v in value]
+                    valueCtype = self.variables[name](*elements)
+                else:
+                    valueCtype = self.variables[name](*value)
             else:
                 valueCtype = self.variables[name](value)
 
