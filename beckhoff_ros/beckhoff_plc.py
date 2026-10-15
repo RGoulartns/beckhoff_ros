@@ -1,5 +1,4 @@
-#!python3.8
-
+from enum import IntEnum
 import ctypes
 from ctypes import sizeof
 from ctypes import c_ubyte
@@ -32,14 +31,14 @@ class BeckhoffPLC:
         self.params = params
         self.observers = []
         self.pack = 0
-
+        self.varsHandle = {}
+        
         self.connection = pyads.Connection(self.params["net_id"], pyads.PORT_TC3PLC1)
         self.connection.open()
 
         self.loadStructures(self.params["structures"])
-
         self.variables = self.loadVariables(self.params["variables"])
-
+        
         # variable monitoring uses notification callbacks
         for var in self.params["variables_to_monitor"]:
             self.connection.add_device_notification(
@@ -49,9 +48,9 @@ class BeckhoffPLC:
             )
 
         # handles used to speed up communication
-        self.varsHandle = {}
-        for var in params["variables_to_write"]:
+        for var in self.params["variables_to_write"]:
             self.varsHandle[var] = self.connection.get_handle(var)
+            
 
 
     def __del__(self):
@@ -76,57 +75,35 @@ class BeckhoffPLC:
         # parser: handle, timestamp, value
         if self.observers:
             _,_,value = self.connection.parse_notification(notification, msgCType)
-
-            if isinstance(value, ctypes.Structure):
-                value = self.cStruct2Dict(value)
-
-            self.notify(name, value)
+            python_value = self.cType2Python(value)
+            self.notify(name, python_value)
 
 
     def setVariable(self, name, value):
-        # print(f"{name}: {value}")
+        # print(f"new msg: {name}: {value}")
         # e.g. false, 'qwer', (69, false, 1), (dict, dict), dict
         # value can be a int/str/bool or list(for arrays) dicts(for structs)
-        try:
-            if isinstance(value, dict):
-                valueCtype = self.instantiateCStruct(value, self.variables[name])
-            elif isinstance(value, (list,tuple)):
-                if isinstance(value[0], dict):
-                    elements = [self.variables[name]._type_(*list(v.values())) for v in value]
-                    valueCtype = self.variables[name](*elements)
-                else:
-                    valueCtype = self.variables[name](*value)
-            else:
-                valueCtype = self.variables[name](value)
 
-            self.connection.write_by_name(
-                name,
-                bytearray(valueCtype),
-                c_ubyte * len(bytearray(valueCtype)),
-                handle=self.varsHandle[name]
-            )
-        except Exception:
-            print(traceback.format_exc())
+        ctype = self.variables[name]
+        valueCtype = self.python2CType(ctype, value)        
+
+        self.connection.write_by_name(
+            name,
+            bytearray(valueCtype),
+            c_ubyte * len(bytearray(valueCtype)),
+            handle=self.varsHandle[name]
+        )
 
 
     def getVariable(self, name):
-        try:
             value = self.connection.read_by_name(name, c_ubyte*sizeof(self.variables[name]))
             valueCtype = self.variables[name].from_buffer(bytearray(value))
-            if isinstance(valueCtype, ctypes.Structure):
-                value = self.cStruct2Dict(valueCtype)
-            else:
-                value = valueCtype.value
-
-            return value
-
-        except Exception:
-            print(traceback.format_exc())
-            return {}
+            return self.cType2Python(valueCtype)
 
 
     def readInitialValues(self):
         for name in self.params["variables_to_monitor"]:
+            # print(f"reading initial value of {name}")
             value = self.getVariable(name)
             self.notify(name, value)
 
@@ -157,6 +134,42 @@ class BeckhoffPLC:
             {"_pack_": pack, "_fields_": list(fields.items())}
         )
         return cTypeClass
+    
+
+    def cType2Python(self, ctypeVar: ctypes):
+        try:
+            if isinstance(ctypeVar, (ctypes.Array,list)):
+                arr = []
+                for v in ctypeVar:
+                    arr.append(self.cType2Python(v))
+                return arr
+            elif isinstance(ctypeVar, ctypes.Structure):
+                value = self.cStruct2Dict(ctypeVar)
+            else:
+                value = ctypeVar.value
+
+            return value
+
+        except Exception:
+            print(traceback.format_exc())
+            return {}
+        
+
+    def python2CType(self, ctype, ptypeVar):
+        try:
+            if isinstance(ptypeVar, (list,tuple)):
+                elems = [self.python2CType(ctype._type_, v) for v in ptypeVar]
+                return ctype(*elems)
+            elif isinstance(ptypeVar, dict):
+                inst = ctype()
+                for field_name, field_type in ctype._fields_:
+                    setattr(inst, field_name, self.python2CType(field_type, ptypeVar[field_name]))
+                return inst
+            else:
+                return ctype(ptypeVar)
+        except Exception:
+            print(traceback.format_exc())
+            return {}
 
 
     def loadVariables(self, dictionary: dict):
