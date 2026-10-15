@@ -4,15 +4,20 @@
         "client_net_id": "192.168.1.20.1.1",
         "username": "Administrator",
         "password": "1",
+        "structures": {
+            "CustomStruct1_s": {
+                "attr1": "uint16",
+                "attr2": "bool"
+            },
+            "CustomStruct2_s": {
+                "attr1": "uint16",
+                "attr2": "CustomStruct1_s",
+                "attr3": ["bool", 2]
+            }
+        },
         "variables": {
-            "GVL.obj1": {
-                "field1": "uint16",
-                "field2": "bool"
-            },
-            "GVL.obj2": {
-                "field1": "int8",
-                "field2": ["GVL.obj1", 4]
-            },
+            "GVL.obj1": ["CustomStruct2_s", 10],
+            "GVL.obj2": "CustomStruct1_s",
             "GVL.var1": "bool",
             "GVL.var2": ["uint16", 5]
         },
