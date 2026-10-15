@@ -2,19 +2,32 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>beckhoff_ros</name>
-  <version>0.0.1</version>
+  <version>2.0.0</version>
   <description>Provides a tool to communicate with Beckhoff PLC</description>
   <maintainer email="rgoulartns@gmail.com">Rafael Goulart</maintainer>
   <license>MIT</license>
 
-  <depend>rclpy</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- to download Beckhoff's ADS library when it is not installed -->
+  <buildtool_depend>git</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <depend>ament_index_cpp</depend>
+  <depend>beckhoff_interfaces</depend>
+  <depend>nlohmann-json-dev</depend>
+  <depend>rclcpp</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>launch_testing</test_depend>
+  <test_depend>launch_testing_ament_cmake</test_depend>
+  <test_depend>launch_testing_ros</test_depend>
+  <test_depend>rclpy</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
