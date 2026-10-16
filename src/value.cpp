@@ -681,9 +681,28 @@ const Value & Value::operator[](const std::string & key) const
   throw ValueError("key " + formatPythonString(key) + " not found");
 }
 
+Value & Value::operator[](const std::string & key)
+{
+  for (auto & item : asDict()) {  // throws if this is not a dict
+    if (item.first == key) {
+      return item.second;
+    }
+  }
+  throw ValueError("key " + formatPythonString(key) + " not found");
+}
+
 const Value & Value::operator[](std::size_t index) const
 {
   const auto & list = asList();
+  if (index >= list.size()) {
+    throw ValueError("list index " + std::to_string(index) + " out of range");
+  }
+  return list[index];
+}
+
+Value & Value::operator[](std::size_t index)
+{
+  auto & list = asList();
   if (index >= list.size()) {
     throw ValueError("list index " + std::to_string(index) + " out of range");
   }

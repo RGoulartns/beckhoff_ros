@@ -92,6 +92,20 @@ TEST(Value, Accessors)
   EXPECT_EQ(list[1].asFloat(), 2.5);
   EXPECT_THROW(list[2], ValueError);
 
+  // items can be changed in place, but not added
+  Value robot = Value::dict(
+  {
+    {"var1", false},
+    {"var2", Value::list({Value::dict({{"attr1", 1}}), Value::dict({{"attr1", 2}})})},
+  });
+  robot["var1"] = true;
+  robot["var2"][1]["attr1"] = 42;
+  EXPECT_EQ(robot.str(), "{'var1': True, 'var2': [{'attr1': 1}, {'attr1': 42}]}");
+  EXPECT_THROW(robot["var3"] = 1, ValueError);
+  EXPECT_THROW(robot["var2"][2], ValueError);
+  EXPECT_THROW(robot["var1"]["x"], ValueError);
+  EXPECT_THROW(robot["var1"][0], ValueError);
+
   EXPECT_EQ(Value(true).asInt(), 1);  // bool is an int in Python
   EXPECT_EQ(Value(3).asFloat(), 3.0);
   EXPECT_THROW(Value(1.5).asInt(), ValueError);

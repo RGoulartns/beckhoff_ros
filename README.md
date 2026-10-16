@@ -190,9 +190,22 @@ plc.setVariable("GVL.obj1", Value::list({Value::dict({
 
 const Value obj2 = plc.getVariable("GVL.obj2");
 std::uint64_t attr1 = obj2["attr1"].asUInt();
+
+// read, change some fields, write back
+Value obj1 = plc.getVariable("GVL.obj1");
+obj1[3]["attr2"]["attr1"] = 42;
+obj1[3]["attr3"][0] = true;
+plc.setVariable("GVL.obj1", obj1);
+
+// from a Python literal or JSON text
+plc.setVariable("GVL.obj2", Value::parseLiteral("{'attr1': 5, 'attr2': True}"));
 ```
 
 Structures are `Value` dicts, arrays are lists and the other types are bool, int or float.
+Every field of a structure must be given (in any order); arrays can have fewer items (the others
+are set to zero). `operator[]` only accesses existing items, so a misspelled field name throws.
+`setVariable` throws `ValueError` (with the path of the wrong item) before anything is written if
+a value does not fit its type.
 
 ## Tests
 

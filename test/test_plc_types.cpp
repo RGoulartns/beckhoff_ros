@@ -165,6 +165,57 @@ TEST(PlcType, EncodesAndDecodesLikeCtypes)
   EXPECT_EQ(hex(real->encode(3)), "00004040");
 }
 
+TEST(PlcType, NestedStructuresAndArrays)
+{
+  TypeRegistry registry;
+  registry.addStructure("MyStruct1", json::parse(R"({"attr1": "uint16", "attr2": "bool"})"));
+  registry.addStructure("MyStruct21", json::parse(R"({"x": "real", "y": "real"})"));
+  registry.addStructure(
+    "MyStruct22",
+    json::parse(R"({"id": "dint", "points": ["MyStruct21", 3], "flags": ["bool", 4]})"));
+  const auto robot_type = registry.addStructure(
+    "RobotStruct",
+    json::parse(R"({"var1": "bool", "var2": ["MyStruct1", 5], "var3": "MyStruct22"})"));
+  EXPECT_EQ(robot_type->size(), 56u);
+  EXPECT_EQ(offset(robot_type, "var2"), 2u);
+  EXPECT_EQ(offset(robot_type, "var3"), 24u);
+
+  // built from scratch
+  Value::List var2;
+  for (int i = 0; i < 5; ++i) {
+    var2.push_back(Value::dict({{"attr1", 100 + i}, {"attr2", i % 2 == 0}}));
+  }
+  Value::List points;
+  for (int i = 0; i < 3; ++i) {
+    points.push_back(Value::dict({{"x", i * 2.0}, {"y", i * 2.0 + 1.5}}));
+  }
+  const Value robot = Value::dict(
+  {
+    {"var1", true},
+    {"var2", var2},
+    {"var3", Value::dict(
+      {
+        {"id", -7},
+        {"points", points},
+        {"flags", Value::list({true, false, true, false})},
+      })},
+  });
+  const std::string expected =
+    "010064000100650000006600010067000000680001000000f9ffffff000000000000c03f0000004000006040"
+    "000080400000b04001000100";
+  EXPECT_EQ(hex(robot_type->encode(robot)), expected);
+  EXPECT_EQ(robot_type->decode(bytes(expected)), robot);
+
+  // read, modify, write
+  Value changed = robot_type->decode(std::vector<std::uint8_t>(robot_type->size(), 0));
+  changed["var2"][3]["attr1"] = 42;
+  changed["var3"]["points"][1]["y"] = 2.5;
+  EXPECT_EQ(
+    hex(robot_type->encode(changed)),
+    "00000000000000000000000000002a0000000000000000000000000000000000000000000000000000002040"
+    "000000000000000000000000");
+}
+
 TEST(PlcType, RejectsValuesThatDoNotFit)
 {
   const TypeRegistry registry = exampleRegistry();

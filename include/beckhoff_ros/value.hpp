@@ -106,10 +106,13 @@ public:
 
   /// Dict lookup; nullptr if this is not a dict or the key does not exist.
   const Value * find(const std::string & key) const;
-  /// Dict lookup; throws ValueError if the key does not exist.
+  /// Dict item; throws ValueError if the key does not exist (items are not added, so a
+  /// misspelled field name is an error), e.g. robot["var2"][3]["attr1"] = 42.
   const Value & operator[](const std::string & key) const;
-  /// List element; throws ValueError if out of range.
+  Value & operator[](const std::string & key);
+  /// List item; throws ValueError if out of range.
   const Value & operator[](std::size_t index) const;
+  Value & operator[](std::size_t index);
 
   /// Same text as Python's str(value).
   std::string str() const;
