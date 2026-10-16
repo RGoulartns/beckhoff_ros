@@ -15,7 +15,7 @@ topic and service.
 
 Requirements:
 
-- ROS 2 Humble or newer
+- ROS 2 Jazzy or Kilted (Ubuntu 24.04)
 - the `beckhoff_interfaces` package (see [ROS interface](#ros-interface)), in the same workspace
 - Beckhoff's ADS library: downloaded automatically at build time if it is not installed (see below)
 
@@ -30,11 +30,13 @@ colcon build
 
 Beckhoff's ADS library is taken, in order of preference, from:
 
-1. an installation made with its CMake build (`cmake -S ADS -B build && cmake --install build`)
+1. an installation made with its CMake build (`cmake -S ADS -B build && cmake --install build`;
+   CMake package `Ads`, or `ads` before version 113.0.35)
 2. an installation made with its meson build, or Beckhoff's `libads-dev` package
-3. otherwise CMake downloads it from https://github.com/Beckhoff/ADS (needs git and internet).
-   CMake options:
-   - `-DBECKHOFF_ROS_ADS_GIT_TAG=<branch, tag or commit>` (default: `master`)
+3. otherwise CMake downloads its sources from https://github.com/Beckhoff/ADS (needs git and
+   internet) and builds them with this package. CMake options:
+   - `-DBECKHOFF_ROS_ADS_GIT_TAG=<branch, tag or commit>` (default: commit `24e598a`, version
+     113.0.36)
    - `-DBECKHOFF_ROS_ADS_GIT_REPOSITORY=<url>` to use a mirror
    - `-DFETCHCONTENT_SOURCE_DIR_BECKHOFF_ADS=/path/to/ADS` to use a local copy (offline builds)
    - `-DBECKHOFF_ROS_FETCH_ADS=OFF` to never download it
@@ -220,7 +222,7 @@ python3 test/ads_simulator.py my_plc.json --host 127.0.0.1 --value "GVL.var1=Tru
 - Requests to the PLC are serialized: the ADS library only supports one pending request at a time
   and the node handles service calls on several threads.
 - More elementary types, and the `pack` option.
-- Requires ROS 2 Humble or newer (the Python version targeted Foxy).
+- Made for ROS 2 Jazzy and Kilted (the Python version targeted Foxy).
 
 Like the Python version, the connection is not re-established if it is lost (the node has to be
 restarted) and routes are not created automatically.

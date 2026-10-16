@@ -18,46 +18,61 @@ find_package(rclcpp REQUIRED)
 find_package(Threads REQUIRED)
 
 # Beckhoff's ADS library (https://github.com/Beckhoff/ADS), the library pyads wraps, taken from:
-#  1. a CMake installation of it (find_package(ads))
+#  1. a CMake installation of it (package "Ads", or "ads" before version 113.0.35)
 #  2. a meson installation of it or Beckhoff's libads-dev package (libAdsLib.a, include/AdsLib)
-#  3. otherwise its sources are downloaded (BECKHOFF_ROS_FETCH_ADS). An existing copy can be
-#     used instead with -DFETCHCONTENT_SOURCE_DIR_BECKHOFF_ADS=/path/to/ADS
+#  3. otherwise its sources are downloaded and built here (BECKHOFF_ROS_FETCH_ADS). An existing
+#     copy can be used instead with -DFETCHCONTENT_SOURCE_DIR_BECKHOFF_ADS=/path/to/ADS
 option(BECKHOFF_ROS_FETCH_ADS "Download Beckhoff's ADS library if it is not installed" ON)
 set(BECKHOFF_ROS_ADS_GIT_REPOSITORY "https://github.com/Beckhoff/ADS.git" CACHE STRING
   "Git repository of Beckhoff's ADS library")
-set(BECKHOFF_ROS_ADS_GIT_TAG "master" CACHE STRING
-  "Branch, tag or commit of Beckhoff's ADS library to download")
+set(BECKHOFF_ROS_ADS_GIT_TAG "24e598a113edfdc0d34414bfefb847930d94cb87" CACHE STRING
+  "Commit, tag or branch of Beckhoff's ADS library to download (default: version 113.0.36)")
 
-find_package(ads CONFIG QUIET)
-if(TARGET ads::ads)
+find_package(Ads CONFIG QUIET)
+if(NOT TARGET Ads::AdsLib)
+  find_package(ads CONFIG QUIET)
+endif()
+if(TARGET Ads::AdsLib)
+  set(BECKHOFF_ROS_ADS_TARGET Ads::AdsLib)
+  message(STATUS "Using Beckhoff's ADS library from ${Ads_DIR}")
+elseif(TARGET ads::ads)
+  set(BECKHOFF_ROS_ADS_TARGET ads::ads)
   message(STATUS "Using Beckhoff's ADS library from ${ads_DIR}")
 else()
+  set(BECKHOFF_ROS_ADS_TARGET beckhoff_ros_adslib)
   find_path(ADSLIB_INCLUDE_DIR NAMES AdsLib.h PATH_SUFFIXES AdsLib)
   # the static library: the shared one built by meson exports a C interface
   find_library(ADSLIB_LIBRARY NAMES libAdsLib.a AdsLib)
   if(ADSLIB_INCLUDE_DIR AND ADSLIB_LIBRARY)
     message(STATUS "Using Beckhoff's ADS library ${ADSLIB_LIBRARY}")
-    add_library(ads::ads UNKNOWN IMPORTED)
-    set_target_properties(ads::ads PROPERTIES
+    add_library(beckhoff_ros_adslib UNKNOWN IMPORTED)
+    set_target_properties(beckhoff_ros_adslib PROPERTIES
       IMPORTED_LOCATION "${ADSLIB_LIBRARY}"
       INTERFACE_INCLUDE_DIRECTORIES "${ADSLIB_INCLUDE_DIR}"
       INTERFACE_LINK_LIBRARIES Threads::Threads)
   elseif(BECKHOFF_ROS_FETCH_ADS)
-    message(STATUS "Beckhoff's ADS library not found, using its sources "
-      "(${BECKHOFF_ROS_ADS_GIT_REPOSITORY} ${BECKHOFF_ROS_ADS_GIT_TAG})")
+    message(STATUS "Beckhoff's ADS library not found, building it from "
+      "${BECKHOFF_ROS_ADS_GIT_REPOSITORY} (${BECKHOFF_ROS_ADS_GIT_TAG})")
     include(FetchContent)
+    # Only the sources are used: the CMake build of the library changes between versions
+    # (and needs CMake 3.23 since 113.0.35). SOURCE_SUBDIR has no CMakeLists.txt on purpose.
     fetchcontent_declare(beckhoff_ads
       GIT_REPOSITORY ${BECKHOFF_ROS_ADS_GIT_REPOSITORY}
       GIT_TAG ${BECKHOFF_ROS_ADS_GIT_TAG}
-      SOURCE_SUBDIR AdsLib
+      SOURCE_SUBDIR do_not_add_subdirectory
       UPDATE_DISCONNECTED TRUE)
-    # only AdsLib/ is built (target "ads"), statically
-    set(_beckhoff_ros_shared_libs ${BUILD_SHARED_LIBS})
-    set(BUILD_SHARED_LIBS OFF)
     fetchcontent_makeavailable(beckhoff_ads)
-    set(BUILD_SHARED_LIBS ${_beckhoff_ros_shared_libs})
-    target_compile_definitions(ads PRIVATE CONFIG_DEFAULT_LOGLEVEL=1)
-    set_target_properties(ads PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # same files as the meson build of the library (standalone router, not TwinCAT/)
+    set(_ads_dir ${beckhoff_ads_SOURCE_DIR}/AdsLib)
+    file(GLOB _ads_sources ${_ads_dir}/*.cpp ${_ads_dir}/bhf/*.cpp ${_ads_dir}/standalone/*.cpp)
+    if(NOT _ads_sources)
+      message(FATAL_ERROR "No sources of Beckhoff's ADS library found in ${_ads_dir}")
+    endif()
+    add_library(beckhoff_ros_adslib STATIC ${_ads_sources})
+    target_include_directories(beckhoff_ros_adslib SYSTEM PUBLIC ${_ads_dir})
+    target_compile_definitions(beckhoff_ros_adslib PRIVATE CONFIG_DEFAULT_LOGLEVEL=1)
+    target_link_libraries(beckhoff_ros_adslib PUBLIC Threads::Threads)
+    set_target_properties(beckhoff_ros_adslib PROPERTIES POSITION_INDEPENDENT_CODE ON)
   else()
     message(FATAL_ERROR "Beckhoff's ADS library (https://github.com/Beckhoff/ADS) was not "
       "found. Install it, or enable BECKHOFF_ROS_FETCH_ADS to download it.")
@@ -74,7 +89,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
 target_link_libraries(${PROJECT_NAME}
   PUBLIC nlohmann_json::nlohmann_json
-  PRIVATE ads::ads)
+  PRIVATE ${BECKHOFF_ROS_ADS_TARGET})
 # finds a shared ADS library installed outside the system paths
 set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 
