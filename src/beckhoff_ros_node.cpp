@@ -92,7 +92,7 @@ void BeckhoffROS::onPlcChanged(const std::string & varName, const Value & varCon
   msg.name = varName;
   msg.type = varContents.typeString();
   msg.value = varContents.str();
-  RCLCPP_INFO(get_logger(), "new message: %s %s", varName.c_str(), msg.value.c_str());
+  RCLCPP_DEBUG(get_logger(), "new message: %s %s", varName.c_str(), msg.value.c_str());
   varChanged_pub_->publish(msg);
 }
 
@@ -102,6 +102,10 @@ void BeckhoffROS::writeVarSrvCB(
 {
   const auto & variable = request->variable;
   try {
+    const Variable * target = plc_->findVariable(variable.name);
+    if (target == nullptr || !target->writable()) {
+      throw ConfigError("Variable '" + variable.name + "' is not listed in variables_to_write");
+    }
     plc_->setVariable(variable.name, parseTypedValue(variable.type, variable.value));
     response->result = true;
   } catch (const std::exception & e) {

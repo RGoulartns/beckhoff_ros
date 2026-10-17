@@ -8,8 +8,6 @@
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <!-- to download Beckhoff's ADS library when it is not installed -->
-  <buildtool_depend>git</buildtool_depend>
 
   <depend>ament_index_cpp</depend>
   <depend>beckhoff_interfaces</depend>

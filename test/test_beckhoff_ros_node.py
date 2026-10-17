@@ -41,6 +41,7 @@ def generate_test_description():
         executable='beckhoff_ros_node',
         name='beckhoff_ros_node',
         parameters=[{'config_file': config_path}],
+        ros_arguments=['--log-level', 'beckhoff_ros_node:=debug'],  # logs the messages
         output='screen')
     return (
         launch.LaunchDescription([node, launch_testing.actions.ReadyToTest()]),

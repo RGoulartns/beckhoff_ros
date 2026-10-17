@@ -21,7 +21,8 @@ namespace beckhoff_ros
 ///                installed in this package's share directory
 /// Publishes the monitored variables on "variable_state" (beckhoff_interfaces/msg/PlcVariable,
 /// with the type and value formatted like Python's str(type(value)) and str(value)) and writes
-/// variables with the "write_variable" service (beckhoff_interfaces/srv/WritePlcVariable).
+/// the variables of variables_to_write with the "write_variable" service
+/// (beckhoff_interfaces/srv/WritePlcVariable).
 class BeckhoffROS : public rclcpp::Node
 {
 public:

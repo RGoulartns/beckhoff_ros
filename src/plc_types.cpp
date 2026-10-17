@@ -323,6 +323,16 @@ std::vector<std::uint8_t> PlcType::encode(const Value & value, const std::string
   return data;
 }
 
+void PlcType::encode(const Value & value, std::uint8_t * out, const std::string & name) const
+{
+  if (kind_ == Kind::Primitive) {
+    encodePrimitive(primitive_, name_, value, out, name);  // checks the value before writing it
+    return;
+  }
+  const std::vector<std::uint8_t> data = encode(value, name);
+  std::memcpy(out, data.data(), data.size());
+}
+
 void PlcType::encodeInto(const Value & value, std::uint8_t * out, const std::string & path) const
 {
   switch (kind_) {

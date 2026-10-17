@@ -99,6 +99,9 @@ public:
   /// length() items (missing items are zeroed, like ctypes does). Throws ValueError if the value
   /// does not fit this type; `name` is used in its message.
   std::vector<std::uint8_t> encode(const Value & value, const std::string & name = "value") const;
+  /// Same, into `out` (size() bytes), which is only modified if the value fits. Memory is not
+  /// allocated for elementary types (unless the value does not fit).
+  void encode(const Value & value, std::uint8_t * out, const std::string & name = "value") const;
 
 private:
   PlcType() = default;
