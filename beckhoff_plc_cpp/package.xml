@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>beckhoff_plc</name>
+  <version>1.0.0</version>
+  <description>ROS-agnostic C++ library to communicate with Beckhoff PLCs over ADS (C++ version of beckhoff_plc.py)</description>
+  <maintainer email="rgoulartns@gmail.com">Rafael Goulart</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>cmake</buildtool_depend>
+  <buildtool_depend>git</buildtool_depend>
+  <depend>nlohmann-json-dev</depend>
+  <test_depend>gtest</test_depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

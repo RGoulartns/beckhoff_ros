@@ -1,0 +1,29 @@
+{
+    "PLC": {
+        "net_id": "127.0.0.1.1.1",
+        "structures": {
+            "CustomStruct1_s": {
+                "attr1": "uint16",
+                "attr2": "bool"
+            },
+            "CustomStruct2_s": {
+                "attr1": "uint16",
+                "attr2": "CustomStruct1_s",
+                "attr3": ["bool", 2]
+            }
+        },
+        "variables": {
+            "GVL.obj1": ["CustomStruct2_s", 10],
+            "GVL.obj2": "CustomStruct1_s",
+            "GVL.var1": "bool"
+        },
+        "variables_to_monitor": [
+            "GVL.obj2"
+        ],
+        "variables_to_write": [
+            "GVL.var1",
+            "GVL.obj1",
+            "GVL.obj2"
+        ]
+    }
+}
