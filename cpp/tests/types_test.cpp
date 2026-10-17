@@ -1,4 +1,5 @@
 #include "beckhoff/types.hpp"
+#include "test_struct3.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -139,6 +140,95 @@ void friendlyValueTests() {
     }
 }
 
+void deeplyNestedStructureTests() {
+    const auto expected = test_struct3::value();
+    for (const auto pack : {0U, 1U, 2U, 4U, 8U, 16U}) {
+        const TypeRegistry registry(test_struct3::structures(), pack);
+        const auto leaf = registry.resolve("TestStruct1");
+        require(leaf->size == 7 && leaf->alignment == 1, "TestStruct1 size/alignment");
+        require(leaf->fields.size() == 2 && leaf->fields[0].name == "attrbt1" &&
+                leaf->fields[0].offset == 0 && leaf->fields[1].name == "attrbt2" &&
+                leaf->fields[1].offset == 1 && leaf->fields[1].type->count == 6,
+                "TestStruct1 ordered fields and bool array layout");
+        const auto group = registry.resolve("TestStruct2");
+        require(group->size == 72 && group->alignment == (pack == 1 ? 1 : 2),
+                "TestStruct2 size/alignment");
+        require(group->fields.size() == 2 && group->fields[0].name == "attr1" &&
+                group->fields[0].offset == 0 && group->fields[0].type->count == 10 &&
+                group->fields[0].type->size == 70 && group->fields[0].type->element == leaf &&
+                group->fields[1].name == "attr2" && group->fields[1].offset == 70,
+                "TestStruct2 array stride and uint16 offset");
+        const auto type = registry.resolve("TestStruct3");
+        const bool packed = pack == 1;
+        require(type->size == (packed ? 442 : 444) && type->alignment == (packed ? 1 : 2),
+                "TestStruct3 size/alignment");
+        require(type->fields.size() == 4 && type->fields[0].name == "attr1" &&
+                type->fields[0].offset == 0 && type->fields[1].name == "attr2" &&
+                type->fields[1].offset == (packed ? 1 : 2) && type->fields[2].name == "attr3" &&
+                type->fields[2].offset == (packed ? 3 : 4) && type->fields[2].type->count == 6 &&
+                type->fields[2].type->size == 432 && type->fields[2].type->element == group &&
+                type->fields[3].name == "attr4" && type->fields[3].offset == (packed ? 435 : 436) &&
+                type->fields[3].type == leaf, "TestStruct3 ordered fields, offsets, and nested array stride");
+
+        const auto golden = test_struct3::goldenBytes(pack);
+        Value value(type, expected);
+        require(value.size() == golden.size() && std::equal(golden.begin(), golden.end(), value.data()),
+                "TestStruct3 encoding matches every independently calculated byte including padding");
+        require(value.toJson() == expected, "TestStruct3 full value round trip covers all 61 leaves");
+        Value decoded(type);
+        std::copy(golden.begin(), golden.end(), decoded.data());
+        require(decoded.toJson() == expected, "TestStruct3 independently constructed bytes decode all fields");
+        if (!packed) {
+            decoded.data()[1] = 0xfe;
+            decoded.data()[443] = 0xfd;
+            require(decoded.toJson() == expected, "TestStruct3 decoder skips internal and trailing padding");
+            decoded.assign(expected);
+            require(std::equal(golden.begin(), golden.end(), decoded.data()),
+                    "TestStruct3 assignment clears internal and trailing padding");
+        }
+    }
+
+    const TypeRegistry registry(test_struct3::structures());
+    Value value(registry.resolve("TestStruct3"), expected);
+    require(value.get("/attr3/0/attr1/0") == test_struct3::leafValue(0, 0) &&
+            value.get("/attr3/5/attr1/9") == test_struct3::leafValue(5, 9),
+            "TestStruct3 first and last nested array members are accessible");
+    auto changed = expected;
+    changed["attr3"][0]["attr1"][0]["attrbt1"] = !changed["attr3"][0]["attr1"][0]["attrbt1"].get<bool>();
+    changed["attr3"][5]["attr1"][9]["attrbt2"][5] = !changed["attr3"][5]["attr1"][9]["attrbt2"][5].get<bool>();
+    changed["attr3"][5]["attr2"] = 65535;
+    changed["attr4"]["attrbt2"][5] = !changed["attr4"]["attrbt2"][5].get<bool>();
+    value.set("/attr3/0/attr1/0/attrbt1", changed["attr3"][0]["attr1"][0]["attrbt1"]);
+    value.set("/attr3/5/attr1/9/attrbt2/5", changed["attr3"][5]["attr1"][9]["attrbt2"][5]);
+    value.set("/attr3/5/attr2", 65535);
+    value.set("/attr4/attrbt2/5", changed["attr4"]["attrbt2"][5]);
+    auto changedBytes = test_struct3::goldenBytes();
+    changedBytes[4] ^= 1;
+    changedBytes[433] ^= 1;
+    changedBytes[434] = 0xff;
+    changedBytes[435] = 0xff;
+    changedBytes[442] ^= 1;
+    require(value.toJson() == changed && std::equal(changedBytes.begin(), changedBytes.end(), value.data()),
+            "TestStruct3 nested builder updates only selected fields at first/last indices");
+    for (const auto& path : {"/attr3/6", "/attr3/0/attr1/10", "/attr3/5/attr1/9/attrbt2/6", "/attr4/attrbt2/6"}) {
+        rejects([&] { value.get(path); }, std::string("TestStruct3 out-of-bounds get: ") + path);
+        rejects([&] { value.set(path, false); }, std::string("TestStruct3 out-of-bounds set: ") + path);
+        require(std::equal(changedBytes.begin(), changedBytes.end(), value.data()),
+                "TestStruct3 invalid nested index preserves all bytes");
+    }
+    auto malformed = changed;
+    malformed["attr3"][5]["attr1"][9]["attrbt2"].erase(5);
+    rejects([&] { value.assign(malformed); }, "TestStruct3 last bool array shape");
+    require(std::equal(changedBytes.begin(), changedBytes.end(), value.data()),
+            "TestStruct3 failed deep assignment preserves all prior bytes");
+    rejects([&] { value.set("/attr3/5/attr2", 65536); }, "TestStruct3 nested uint16 overflow");
+    rejects([&] { value.set("/attr3/5/attr2", -1); }, "TestStruct3 nested uint16 underflow");
+    rejects([&] { value.set("/attr3/5/attr1/9", Json{{"attrbt1", true}}); }, "TestStruct3 incomplete leaf shape");
+    rejects([&] { value.set("/attr3/5/attr1/9/attrbt2/5", 1); }, "TestStruct3 bool requires bool JSON");
+    require(value.toJson() == changed && std::equal(changedBytes.begin(), changedBytes.end(), value.data()),
+            "TestStruct3 rejected nested values preserve JSON and every byte");
+}
+
 void validationTests() {
     const TypeRegistry registry;
     rejects([] { TypeRegistry bad(Json::array()); }, "structures must be an object");
@@ -182,6 +272,7 @@ int main() {
         layoutTests();
         serializationTests();
         friendlyValueTests();
+        deeplyNestedStructureTests();
         validationTests();
         std::cout << "Type/value tests passed (" << checks << " checks)\n";
         return 0;

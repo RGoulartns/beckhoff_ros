@@ -1,29 +1,40 @@
 #include "beckhoff/types.hpp"
+#include "../tests/test_struct3.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
-#include <iomanip>
+#include <stdexcept>
+#include <vector>
 
 int main() {
     using namespace beckhoff;
-    const auto schema = Json::parse(R"({"CustomStruct1_s":{"attr1":"uint16","attr2":"bool"},"CustomStruct2_s":{"attr1":"uint16","attr2":"CustomStruct1_s","attr3":["bool",2]}})");
-    TypeRegistry types(schema);
-    const auto type = types.resolve("CustomStruct2_s");
-    const auto object = Json::parse(R"({"attr1":42,"attr2":{"attr1":100,"attr2":true},"attr3":[false,true]})");
+    TypeRegistry types(test_struct3::structures());
+    const auto type = types.resolve("TestStruct3");
+    const auto object = test_struct3::value();
     Value value(type);
-    constexpr std::size_t iterations = 200000;
-    std::uint64_t checksum = 0;
-    auto start = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < iterations; ++i) {
+    value.assign(object);
+    const auto expected = test_struct3::goldenBytes();
+    if (value.size() != expected.size() || !std::equal(expected.begin(), expected.end(), value.data()) || value.toJson() != object)
+        throw std::runtime_error("TestStruct3 benchmark input failed its golden-byte/round-trip check");
+    constexpr std::size_t iterations = 5000;
+    for (std::size_t i = 0; i < 100; ++i) {
         value.assign(object);
-        const auto decoded = value.toJson();
-        checksum += decoded.at("attr1").get<unsigned>();
+        if (value.toJson() != object) throw std::runtime_error("benchmark warmup failed");
     }
-    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
-    std::cout << "C++ JSON encode+decode: " << ns / static_cast<double>(iterations)
-              << " ns/iteration, iterations=" << iterations << ", checksum=" << checksum << '\n';
-    std::cout << "Wire bytes: ";
-    for (std::size_t i = 0; i < value.size(); ++i)
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(value.data()[i]);
-    std::cout << '\n';
+    std::vector<std::int64_t> durations(iterations);
+    std::uint64_t checksum = 0;
+    for (std::size_t i = 0; i < iterations; ++i) {
+        const auto start = std::chrono::steady_clock::now();
+        value.assign(object);
+        {
+            const auto decoded = value.toJson();
+            checksum += decoded.at("attr2").get<unsigned>();
+        }
+        durations[i] = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    }
+    std::sort(durations.begin(), durations.end());
+    std::cout << Json{{"type", "TestStruct3"}, {"bytes", value.size()}, {"iterations", iterations},
+        {"median_ns", durations[iterations / 2]}, {"p95_ns", durations[iterations * 95 / 100]},
+        {"checksum", checksum}, {"wire_bytes", std::vector<std::uint8_t>(value.data(), value.data() + value.size())}}.dump() << '\n';
 }

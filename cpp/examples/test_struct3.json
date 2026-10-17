@@ -1,0 +1,32 @@
+{
+  "PLC": {
+    "net_id": "127.0.0.1.1.2",
+    "ip_address": "127.0.0.1",
+    "client_net_id": "127.0.0.1.1.1",
+    "port": 851,
+    "timeout_ms": 1000,
+    "pack": 0,
+    "structures": {
+      "TestStruct1": {
+        "attrbt1": "bool",
+        "attrbt2": ["bool", 6]
+      },
+      "TestStruct2": {
+        "attr1": ["TestStruct1", 10],
+        "attr2": "uint16"
+      },
+      "TestStruct3": {
+        "attr1": "bool",
+        "attr2": "uint16",
+        "attr3": ["TestStruct2", 6],
+        "attr4": "TestStruct1"
+      }
+    },
+    "variables": {
+      "GVL.complex": "TestStruct3",
+      "GVL.counter": "uint32"
+    },
+    "variables_to_monitor": ["GVL.complex"],
+    "variables_to_write": ["GVL.complex", "GVL.counter"]
+  }
+}

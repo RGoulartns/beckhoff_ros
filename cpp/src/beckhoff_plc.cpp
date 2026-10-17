@@ -107,8 +107,8 @@ struct BeckhoffPLC::Impl {
         options.net_id = config.value("net_id", std::string{});
         options.client_net_id = config.value("client_net_id", std::string{});
         options.ip_address = config.value("ip_address", std::string{});
-        // pyads derives this address when omitted. An explicit gateway/IP is
-        // preferred when the AMS Net ID is unrelated to the network address.
+        // Support existing parameter files that omit the gateway/IP. An explicit
+        // address is preferred when the AMS Net ID differs from the network IP.
         if (options.ip_address.empty()) {
             const auto last = options.net_id.rfind('.');
             if (last != std::string::npos) {

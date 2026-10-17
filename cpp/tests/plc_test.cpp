@@ -1,4 +1,5 @@
 #include "beckhoff/beckhoff_plc.hpp"
+#include "test_struct3.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -29,8 +30,9 @@ template<class F> void rejects(F&& action, const char* message) {
 }
 
 struct State {
-    struct Subscription { std::uint32_t handle; beckhoff::Transport::Notification callback; };
+    struct Subscription { std::uint32_t handle; std::size_t size; beckhoff::Transport::Notification callback; };
     std::vector<std::string> calls;
+    std::map<std::string, std::vector<std::uint8_t>> initial_data;
     std::map<std::uint32_t, std::vector<std::uint8_t>> data;
     std::map<std::uint32_t, Subscription> subscriptions;
     std::size_t acquisitions = 0;
@@ -59,7 +61,9 @@ public:
         state_->calls.push_back("acquire:" + name);
         if (state_->fail_acquire == state_->acquisitions) throw std::runtime_error("acquire failure");
         const auto handle = static_cast<std::uint32_t>(state_->acquisitions + 100);
-        state_->data.emplace(handle, std::vector<std::uint8_t>(64));
+        const auto initial = state_->initial_data.find(name);
+        state_->data.emplace(handle, initial == state_->initial_data.end()
+            ? std::vector<std::uint8_t>(64) : initial->second);
         return handle;
     }
     void release(std::uint32_t handle) noexcept override {
@@ -78,12 +82,12 @@ public:
         const auto* bytes = static_cast<const std::uint8_t*>(data);
         state_->data.at(handle).assign(bytes, bytes + size);
     }
-    std::uint32_t subscribe(std::uint32_t handle, std::size_t, Notification callback) override {
+    std::uint32_t subscribe(std::uint32_t handle, std::size_t size, Notification callback) override {
         ++state_->subscription_attempts;
         state_->calls.push_back("subscribe:" + std::to_string(handle));
         if (state_->fail_subscribe == state_->subscription_attempts) throw std::runtime_error("subscribe failure");
         const auto token = static_cast<std::uint32_t>(state_->subscription_attempts + 200);
-        state_->subscriptions.emplace(token, State::Subscription{handle, std::move(callback)});
+        state_->subscriptions.emplace(token, State::Subscription{handle, size, std::move(callback)});
         return token;
     }
     void unsubscribe(std::uint32_t notification) noexcept override {
@@ -212,6 +216,87 @@ void observers() {
     const auto initial_error_id = plc.addRawObserver([](const std::string&, const std::uint8_t*, std::size_t) { throw 1; });
     check(plc.callbackErrors() == 5, "initial callback exceptions are also contained");
     plc.removeObserver(initial_error_id);
+}
+
+void deeplyNestedStructureIO() {
+    const auto golden = test_struct3::goldenBytes();
+    const auto expected = test_struct3::value();
+    auto state = std::make_shared<State>();
+    state->initial_data.emplace("GVL.complex", golden);
+    {
+        BeckhoffPLC plc(test_struct3::configuration(), transport(state));
+        const auto& symbol = plc.variable("GVL.complex");
+        check(symbol.size() == 444 && symbol.writable(), "TestStruct3 client uses complete 444-byte layout");
+        check(state->subscriptions.size() == 1 && state->subscriptions.at(201).handle == 101 &&
+              state->subscriptions.at(201).size == 444, "TestStruct3 subscription requests full nested structure");
+        check(plc.getVariable("GVL.complex") == expected, "TestStruct3 reads every field from independent golden bytes");
+
+        std::vector<std::pair<std::string, Json>> events;
+        const auto json_id = plc.addObserver([&](const std::string& name, const Json& value) {
+            events.emplace_back(name, value);
+        });
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> raw_events;
+        const auto raw_id = plc.addRawObserver([&](const std::string& name, const std::uint8_t* bytes, std::size_t size) {
+            raw_events.emplace_back(name, std::vector<std::uint8_t>(bytes, bytes + size));
+        });
+        check(events.size() == 1 && events[0].first == "GVL.complex" && events[0].second == expected,
+              "TestStruct3 initial JSON observer decodes all 61 leaves");
+        check(raw_events.size() == 1 && raw_events[0].first == "GVL.complex" && raw_events[0].second == golden,
+              "TestStruct3 initial raw observer receives all bytes including padding");
+
+        auto typed = plc.makeVariable("GVL.complex");
+        typed.assign(expected);
+        plc.setVariable("GVL.complex", typed);
+        check(state->data.at(101) == golden, "TestStruct3 variable factory writes independent golden bytes");
+        auto custom = plc.makeValue("TestStruct3");
+        custom.assign(expected);
+        plc.setVariable("GVL.complex", custom);
+        check(state->data.at(101) == golden, "TestStruct3 custom type factory writes independent golden bytes");
+        plc.setVariable("GVL.complex", expected);
+        check(state->data.at(101) == golden, "TestStruct3 JSON writes every nested field with correct padding");
+
+        auto changedBytes = golden;
+        changedBytes[0] = 0;
+        changedBytes[433] ^= 1;
+        auto changed = expected;
+        changed["attr1"] = false;
+        changed["attr3"][5]["attr1"][9]["attrbt2"][5] = !changed["attr3"][5]["attr1"][9]["attrbt2"][5].get<bool>();
+        plc.write(symbol, changedBytes.data(), changedBytes.size());
+        std::vector<std::uint8_t> readback(444);
+        plc.read(symbol, readback.data(), readback.size());
+        check(readback == changedBytes && plc.getVariable("GVL.complex") == changed,
+              "TestStruct3 preallocated raw read/write retains all nested values");
+
+        state->emit(101, golden.data(), golden.size());
+        state->emit(101, changedBytes.data(), changedBytes.size());
+        check(events.size() == 3 && events[1].second == expected && events[2].second == changed,
+              "TestStruct3 notification JSON decodes entire structure and changed final nested bool");
+        check(raw_events.size() == 3 && raw_events[1].second == golden && raw_events[2].second == changedBytes,
+              "TestStruct3 raw notifications preserve every payload byte");
+        std::vector<std::uint8_t> oversized(445);
+        state->emit(101, golden.data(), golden.size() - 1);
+        state->emit(101, oversized.data(), oversized.size());
+        check(events.size() == 3 && raw_events.size() == 3 && plc.callbackErrors() == 2,
+              "TestStruct3 short and oversized notifications are rejected before observers");
+
+        const auto writes = state->writes;
+        auto malformed = expected;
+        malformed["attr3"][5]["attr2"] = 65536;
+        rejects([&] { plc.setVariable("GVL.complex", malformed); }, "TestStruct3 invalid nested range write rejected");
+        malformed = expected;
+        malformed["attr3"][5]["attr1"].erase(9);
+        rejects([&] { plc.setVariable("GVL.complex", malformed); }, "TestStruct3 invalid nested array write rejected");
+        auto incompatible = plc.makeValue(Json::array({"uint8", 444}));
+        rejects([&] { plc.setVariable("GVL.complex", incompatible); }, "TestStruct3 equal-size incompatible type rejected");
+        check(state->writes == writes && state->data.at(101) == changedBytes,
+              "TestStruct3 invalid values preserve transport state without I/O");
+        check(state->acquisitions == 1 && state->subscription_attempts == 1,
+              "TestStruct3 typed, JSON, raw, and observer operations reuse one ADS handle");
+        plc.removeObserver(json_id);
+        plc.removeObserver(raw_id);
+    }
+    check(state->subscriptions.empty() && state->data.empty() && state->destroyed,
+          "TestStruct3 destruction releases the subscription and cached handle");
 }
 
 void validationBeforeConnect() {
@@ -364,6 +449,7 @@ int main() {
     try {
         lifecycleAndValues();
         observers();
+        deeplyNestedStructureIO();
         validationBeforeConnect();
         constructorRollback();
         clientOwnership();

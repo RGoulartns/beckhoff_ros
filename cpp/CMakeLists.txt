@@ -8,7 +8,7 @@ include(CTest)
 find_package(Threads REQUIRED)
 
 option(BECKHOFF_PLC_WITH_ADS "Build the standalone Beckhoff ADS transport" ON)
-option(BECKHOFF_PLC_ADS_INTEGRATION_TEST "Run local pyads test-server integration" OFF)
+option(BECKHOFF_PLC_ADS_INTEGRATION_TEST "Run native AdsLib TCP tests against a stdlib ADS test peer" OFF)
 
 find_package(nlohmann_json 3.11 CONFIG QUIET)
 if(NOT nlohmann_json_FOUND)
@@ -84,7 +84,8 @@ if(BUILD_TESTING)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
         add_executable(beckhoff_ads_probe tests/ads_probe.cpp)
         target_link_libraries(beckhoff_ads_probe PRIVATE BeckhoffPLC::beckhoff_plc)
-        add_test(NAME ads_integration COMMAND ${Python3_EXECUTABLE}
+        # Isolate the test peer from third-party packages, including site-packages.
+        add_test(NAME ads_integration COMMAND ${Python3_EXECUTABLE} -I -S
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/ads_integration.py $<TARGET_FILE:beckhoff_ads_probe>)
         set_tests_properties(ads_integration PROPERTIES TIMEOUT 30)
     endif()

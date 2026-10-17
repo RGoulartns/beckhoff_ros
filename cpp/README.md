@@ -4,6 +4,12 @@ C++17 ADS client with runtime JSON structures, nested arrays, cached symbol
 handles and on-change observers. It has no ROS or Python runtime dependency.
 The existing Python ROS package stays available alongside this library.
 
+The native transport includes Beckhoff's `AdsLib.h` and calls its C/C++ API
+directly: `AdsSyncReadWriteReqEx2` for symbol handles, `AdsSyncReadReqEx2` and
+`AdsSyncWriteReqEx` for I/O, and the native notification API for subscriptions.
+The call path is `BeckhoffPLC -> AdsTransport -> Beckhoff AdsLib -> ADS/TCP`.
+The type registry computes layouts and serializes values in C++.
+
 ## Build and test
 
 Requires a C++17 compiler, CMake 3.24+, threads and Internet access on the first
@@ -17,8 +23,8 @@ ctest --test-dir build-cpp --output-on-failure
 ```
 
 Default tests exercise codecs, client behavior and the ADS API boundary without
-hardware. To additionally exercise real AdsLib TCP traffic, install
-`pyads==3.5.0` in a virtual environment and configure with:
+hardware. To additionally exercise real AdsLib TCP traffic, configure with a
+Python 3 interpreter for the independent, standard-library-only ADS test peer:
 
 ```sh
 cmake -S cpp -B build-cpp -DCMAKE_BUILD_TYPE=Release \
@@ -30,8 +36,54 @@ ctest --test-dir build-cpp --output-on-failure
 
 The integration test uses localhost TCP port 48898. It verifies reads, writes,
 wire notifications, shared routes and resource cleanup. Python is only a test
-dependency. `-DBECKHOFF_PLC_WITH_ADS=OFF` builds codecs and injectable client
+helper dependency for this optional suite; it requires no third-party packages.
+The C++ build and all integration tests work without pyads installed.
+`-DBECKHOFF_PLC_WITH_ADS=OFF` builds codecs and injectable client
 support without AdsLib; a real connection then requires an injected `Transport`.
+
+## Complex structure validation
+
+[examples/test_struct3.json](examples/test_struct3.json) contains the complete
+`TestStruct1` / `TestStruct2` / `TestStruct3` configuration. Its network addresses
+point to the localhost test peer; replace them for a real PLC. The schema is:
+
+```json
+{
+  "TestStruct1": {"attrbt1": "bool", "attrbt2": ["bool", 6]},
+  "TestStruct2": {"attr1": ["TestStruct1", 10], "attr2": "uint16"},
+  "TestStruct3": {
+    "attr1": "bool", "attr2": "uint16",
+    "attr3": ["TestStruct2", 6], "attr4": "TestStruct1"
+  }
+}
+```
+
+Default layout on x86-64:
+
+| Type | Bytes | Member offsets |
+| --- | ---: | --- |
+| TestStruct1 | 7 | `attrbt1=0`, `attrbt2=1` |
+| TestStruct2 | 72 | `attr1=0`, `attr2=70` |
+| TestStruct3 | 444 | `attr1=0`, `attr2=2`, `attr3=4`, `attr4=436` |
+
+Tests exercise all 60 nested leaves and the trailing `TestStruct1`, with unique
+boolean patterns and distinct `uint16` values for each group. Expected bytes
+are computed independently of the codec. Checks include every field/byte,
+padding, native and packed layouts (`TestStruct3` is 442 bytes with `pack=1`),
+nested builders, invalid shapes/ranges, mocked I/O and observers. The native ADS
+integration test loads the JSON parameter file, exchanges the full 444-byte
+payload over TCP and verifies notifications and cleanup. This is a local protocol
+test; it does not establish behavior or timing on a physical PLC.
+
+For example, after loading this configuration, a nested value can be built as:
+
+```cpp
+auto value = plc->makeValue("TestStruct3"); // All fields initially zero/false.
+value.set("/attr2", 42);
+value.set("/attr3/5/attr1/9/attrbt2/5", true);
+value.set("/attr4/attrbt1", true);
+plc->setVariable("GVL.complex", value);
+```
 
 ## JSON configuration and layouts
 
@@ -157,14 +209,23 @@ builders and decoded observers allocate and should stay outside tight loops.
 ADS/TCP, OS scheduling, mutexes and AdsLib internals do **not** give hard realtime
 guarantees. A timeout can block an I/O call. Compare latency and jitter on your
 target PLC, network, payload and scheduling policy before using it in a control
-loop. The included benchmark measures only local serialization CPU cost:
+loop. The native benchmark uses the same complete `TestStruct3` payload and
+reports median/p95 encode+decode CPU times after warmup:
+
+```sh
+build-cpp/beckhoff_codec_benchmark
+```
+
+An optional historical comparison imports the original Python class. **Only this
+comparison** requires `pyads==3.5.0` to import that legacy module; the native client,
+native benchmark and test server do not use it:
 
 ```sh
 python cpp/benchmarks/compare_python.py build-cpp/beckhoff_codec_benchmark
 ```
 
-It checks byte compatibility with the original Python encoder and times the same
-nested struct encode/decode. Its result is not a PLC/network latency claim.
+It checks all 444 bytes against the original Python encoder and times the same
+complex struct encode/decode. Neither benchmark measures PLC/network latency.
 
 ## Use from another project or ROS C++ node
 
